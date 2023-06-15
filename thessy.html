@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en" style="width:100%; height:100%;">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <title>thessy</title>
+</head>
+
+<body>
+    <div id="hints"></div>
+    <form id="form">
+        <input id="guess">
+        <input id="submit" type="submit" value="Guess">
+    </form>
+</body>
+
+<style>
+</style>
+
+<script>
+    function cyrb128(str) {
+        let h1 = 1779033703, h2 = 3144134277,
+            h3 = 1013904242, h4 = 2773480762;
+        for (let i = 0, k; i < str.length; i++) {
+            k = str.charCodeAt(i);
+            h1 = h2 ^ Math.imul(h1 ^ k, 597399067);
+            h2 = h3 ^ Math.imul(h2 ^ k, 2869860233);
+            h3 = h4 ^ Math.imul(h3 ^ k, 951274213);
+            h4 = h1 ^ Math.imul(h4 ^ k, 2716044179);
+        }
+        h1 = Math.imul(h3 ^ (h1 >>> 18), 597399067);
+        h2 = Math.imul(h4 ^ (h2 >>> 22), 2869860233);
+        h3 = Math.imul(h1 ^ (h3 >>> 17), 951274213);
+        h4 = Math.imul(h2 ^ (h4 >>> 19), 2716044179);
+        return [(h1^h2^h3^h4)>>>0, (h2^h1)>>>0, (h3^h1)>>>0, (h4^h1)>>>0];
+    }
+
+    function sfc32(a, b, c, d) {
+        return function() {
+            a >>>= 0; b >>>= 0; c >>>= 0; d >>>= 0; 
+            var t = (a + b) | 0;
+            a = b ^ b >>> 9;
+            b = c + (c << 3) | 0;
+            c = (c << 21 | c >>> 11);
+            d = d + 1 | 0;
+            t = t + d | 0;
+            c = c + t | 0;
+            return (t >>> 0) / 4294967296;
+        }
+    }
+
+    function createGenerator(seed) {
+        const fancySeed = cyrb128(seed);
+        return sfc32(fancySeed[0], fancySeed[1], fancySeed[2], fancySeed[3]);
+    }
+</script>
+
+<script>
+    const intermediateThesaurusKey = "1289593e-9fa8-4604-8ea7-527b80d7c347";
+    const thesaurusKey = "9dc8ccc2-c400-4655-9eb8-fe549250cc3c";
+    const dictionaryKey = "67055600-e0ed-48d8-a6d1-ea4749ef1ab3";
+
+    var answer;
+
+    var random;
+
+    var synonyms;
+
+    function getDefinition(word, callback) {
+        fetch(`https://www.dictionaryapi.com/api/v3/references/collegiate/json/${word}?key=${dictionaryKey}`)
+            .then(response => response.json())
+            .then(json => callback(json));
+    }
+
+    function query(word, callback, intermediate) {
+        let key = intermediate ? intermediateThesaurusKey : thesaurusKey;
+        fetch(`https://www.dictionaryapi.com/api/v3/references/${intermediate ? 'i' : ''}thesaurus/json/${word}?key=${key}`)
+            .then(response => response.json())
+            .then(json => callback(json));
+    }
+
+    function merge(...arrays) {
+        const braided = [];
+        const max = Math.max(...arrays.map(a => a.length));
+        for (let i = 0; i < max; i++) {
+            arrays.forEach(array => {
+                if (array[i] !== undefined) braided.push(array[i]);
+            });
+        }
+        return braided;
+    }
+
+    const black = [];
+
+    function getSyns(data, word) {
+        if (data[0].meta === undefined) return [];
+        const options = [];
+        for (let i = 0; i < data.length; i++) {
+            options.push(merge(...data[i].meta.syns));
+        }
+        black.push(word);
+        return merge(...options).filter(opt => {
+            const lowerOpt = opt.toLowerCase();
+            return black.every((blackWord) => !lowerOpt.includes(blackWord));
+        });
+    }
+
+    function synonymsFor(word, callback) {
+        query(word, r => callback(getSyns(r, word)), false); // HERE
+    }
+
+    function pickWord(callback) {
+        fetch("https://raw.githubusercontent.com/powerlanguage/word-lists/master/1000-most-common-words.txt")
+            .then(response => response.text())
+            .then(text => {
+                const daysSince = Math.floor((new Date() - new Date("06/14/2023")) / (1000 * 3600 * 24));
+                callback(text.split("\n")[daysSince + 100]);
+            });
+    }
+
+window.onload = function() {
+    pickWord(game);
+};
+
+function game(www) {
+
+        answer = www;
+        console.log(answer);
+        random = createGenerator(answer);
+
+        const hints = document.getElementById("hints");
+        const form = document.getElementById("form");
+        const guess = document.getElementById("guess");
+        const submit = document.getElementById("submit");
+
+        form.addEventListener("submit", function(e) {
+            e.preventDefault();
+            if (guess.value === answer) {
+                guess.disabled = true;
+                submit.disabled = true;
+                guess.value = "";
+                return;
+            }
+            guess.value = "";
+            addP(synonyms.splice(Math.floor(random() * synonyms.length), 1));
+        });
+
+        function addP(text) {
+            const div = document.createElement("div");
+            const p = document.createElement("p");
+            p.innerText = text;
+            const ul = document.createElement("ul");
+            div.appendChild(p);
+            div.appendChild(ul);
+            getDefinition(text, json => {
+                for (let i = 0; i < json.length; i++) {
+                    for (let j = 0; j < json[i].shortdef.length; j++) {
+                        const li = document.createElement("li");
+                        li.innerText = json[i].shortdef[j];
+                        ul.appendChild(li);
+                    }
+                }
+                hints.appendChild(div);
+            });
+        }
+
+        synonymsFor(answer, function (syns) {
+            console.log(syns);
+            synonyms = syns;
+            addP(synonyms.splice(Math.floor(random() * synonyms.length), 1));
+            addP(synonyms.splice(Math.floor(random() * synonyms.length), 1));
+            addP(synonyms.splice(Math.floor(random() * synonyms.length), 1));
+        });
+    };
+</script>
+
+</html>
